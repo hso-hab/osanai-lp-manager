@@ -16,7 +16,12 @@
     const ids=new Set();for(const list of [d.lps,d.versions,d.records])for(const r of list){if(!r||!str(r.id,100)||ids.has(r.id))fail('IDが不正または重複しています。');ids.add(r.id);}
     const lpids=new Set(d.lps.map(l=>l.id));
     const url=s=>{try{const u=new URL(s);return ['https:','http:'].includes(u.protocol)&&!u.username&&!u.password&&s.length<=2000;}catch{return false;}};
-    for(const l of d.lps)if(!str(l.name,100))fail('LP名を100文字以内で入力してください。');
+    for(const l of d.lps){
+      if(!str(l.name,100))fail('LP名を100文字以内で入力してください。');
+      if(l.favorite!==undefined&&typeof l.favorite!=='boolean')fail('お気に入りの形式が不正です。');
+      if(l.status!==undefined&&!['','continue','watch','revise'].includes(l.status))fail('判断ステータスが不正です。');
+      if(l.nextMemo!==undefined&&(typeof l.nextMemo!=='string'||l.nextMemo.length>2000))fail('次の修正メモは2,000文字以内で入力してください。');
+    }
     const keys=new Set();for(const v of d.versions){
       if(!lpids.has(v.lpId)||!str(v.label,60)||!str(v.owner,100)||!str(v.note,2000)||!day(v.date)||!url(v.url))fail('変更履歴の担当者・バージョン・日付・URL・内容を確認してください。');
       for(const k of [v.lpId+'@'+v.date,v.lpId+'#'+v.label]){if(keys.has(k))fail('同じLPの公開日・バージョン名は重複できません。1日1バージョンです。');keys.add(k);}
@@ -42,11 +47,22 @@
     const rows=d.records.filter(r=>r.lpId===id),before=sum(rows.filter(r=>r.date>=beforeStart&&r.date<=beforeEnd)),after=sum(rows.filter(r=>r.date>=afterStart&&r.date<=afterEnd));
     return {available:true,n,beforeStart,beforeEnd,afterStart,afterEnd,before,after,complete:before.days===n&&after.days===n};
   }
+  function daily(d,asOf=today()){
+    const beforeStart=shift(asOf,-14),beforeEnd=shift(asOf,-8),afterStart=shift(asOf,-7),afterEnd=shift(asOf,-1);
+    const grouped=new Map(d.lps.map(l=>[l.id,[]]));for(const r of d.records)grouped.get(r.lpId)?.push(r);
+    return d.lps.map(lp=>{
+      const rows=grouped.get(lp.id),current=versionAt(d,lp.id,asOf),record=rows.find(r=>r.date===asOf),previous=rows.filter(r=>r.date<asOf).sort((a,b)=>b.date.localeCompare(a.date))[0];
+      const before=sum(rows.filter(r=>r.date>=beforeStart&&r.date<=beforeEnd)),after=sum(rows.filter(r=>r.date>=afterStart&&r.date<=afterEnd));
+      const complete=before.days===7&&after.days===7,delta=complete?after.profit-before.profit:null;
+      const trend=!current?'scheduled':!complete?'insufficient':delta<0?'bad':delta>0?(after.profit<0?'recovering':'good'):'flat';
+      return {lp,current,record,previous,before,after,complete,delta,trend,beforeStart,beforeEnd,afterStart,afterEnd};
+    });
+  }
   function sample(){const d=empty(),t=today(),start=shift(t,-28);for(let i=0;i<3;i++){
-    const id='demo-lp-'+i;d.lps.push({id,name:['スピード申込 LP','安心サポート LP','スマホ専用 LP'][i]});
+    const id='demo-lp-'+i;d.lps.push({id,name:['スピード申込 LP','安心サポート LP','スマホ専用 LP'][i],favorite:i<2,status:['continue','watch','revise'][i],nextMemo:['申込ボタンの文言を短くする。','よくある質問をフォームの直前へ。','スマホの冒頭でメリットを伝える。'][i]});
     d.versions.push({id:id+'-v1',lpId:id,label:'v1.0',date:start,owner:['小山','佐藤','田中'][i],url:'https://example.com/lp-'+(i+1),note:'初版公開。基本構成で配信を開始。'}, {id:id+'-v2',lpId:id,label:'v1.1',date:shift(t,-14),owner:['小山','佐藤','田中'][i],url:'https://example.com/lp-'+(i+1),note:['ファーストビューの見出しを短くし、申込ボタンを追加。','入力フォームを5項目から3項目へ短縮。','キービジュアルと訴求を変更。'][i]});
-    for(let j=0;j<28;j++){const improve=j>=14,conv=[improve?10:6,improve?8:5,improve?3:5][i]+j%3;d.records.push({id:id+'-r'+j,lpId:id,date:shift(start,j),spend:4000+i*800+j%3*100,clicks:180+i*20,visits:40+conv*2,conversions:conv,revenue:conv*1100,other:500,memo:''});}
+    for(let j=0;j<28;j++){const improve=j>=14,conv=[improve?10:6,improve?8:5,improve?3:5][i]+j%3+(j>=21?[2,0,-2][i]:0);d.records.push({id:id+'-r'+j,lpId:id,date:shift(start,j),spend:4000+i*800+j%3*100,clicks:180+i*20,visits:40+conv*2,conversions:conv,revenue:conv*1100,other:500,memo:''});}
     }return validate(d);}
-  const api={FIELDS,empty,day,shift,diff,today,ratio,sum,validate,versions,versionAt,comparison,sample};
+  const api={FIELDS,empty,day,shift,diff,today,ratio,sum,validate,versions,versionAt,comparison,daily,sample};
   if(typeof module!=='undefined')module.exports=api;else root.LP=api;
 })(typeof window!=='undefined'?window:globalThis);
